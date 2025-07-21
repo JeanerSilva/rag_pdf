@@ -1,0 +1,12 @@
+# STREAMLIT - interface web leve
+streamlit==1.35.0
+
+# OPENAI SDK - versão compatível com Assistants API e file_search
+openai==1.30.5
+
+# UTILITÁRIOS PADRÃO
+tqdm==4.66.4  # opcional: barra de progresso (pode ser útil)
+python-dotenv==1.0.1  # caso queira usar .env para variáveis de ambiente
+
+# OPCIONAL: manipulação robusta de PDFs
+PyMuPDF==1.24.4  # para futuros upgrades com análise do conteúdo
