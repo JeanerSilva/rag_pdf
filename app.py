@@ -33,18 +33,18 @@ def get_or_create_assistant():
             if (config.get("pdf_hash") == current_hash and
                 config.get("vector_store_id") and
                 config.get("assistant_id") and
-                config.get("file_id")): # Ensure file_id also exists
+                config.get("file_id")): # Garante que file_id também existe
                 
-                # Try to retrieve objects to ensure they are still valid
+                # Tenta recuperar objetos para garantir que ainda são válidos na OpenAI
                 try:
                     client.beta.assistants.retrieve(config["assistant_id"])
-                    # Use client.vector_stores for retrieval as well
+                    # Usa client.vector_stores para recuperação também
                     client.vector_stores.retrieve(config["vector_store_id"])
                     client.files.retrieve(config["file_id"])
                     return config["assistant_id"], config["file_id"], config["vector_store_id"]
                 except openai.NotFoundError:
                     st.warning("Assistente, Vector Store ou Arquivo não encontrados na OpenAI. Recriando...")
-                    os.remove(ASSISTANT_CONFIG_PATH) # Force recreation if objects are gone
+                    os.remove(ASSISTANT_CONFIG_PATH) # Força a recriação se os objetos desapareceram
 
             else:
                 # Se o PDF mudou ou a config está incompleta/corrompida, remove o arquivo de config para recriar
@@ -79,7 +79,7 @@ def get_or_create_assistant():
     # Espera até que o batch de arquivos seja processado
     with st.spinner("Processando o documento no Vector Store..."):
         while True:
-            # Use client.vector_stores para recuperar o status do batch
+            # Usa client.vector_stores para recuperar o status do batch
             file_batch = client.vector_stores.file_batches.retrieve(
                 vector_store_id=vector_store.id,
                 batch_id=file_batch.id,
@@ -95,7 +95,18 @@ def get_or_create_assistant():
     # 4. Cria o Assistant, associando-o ao Vector Store (Assistants ainda está em beta)
     assistant = client.beta.assistants.create(
         name="Assistente do PPA",
-        instructions="Você responde perguntas com base no Programa Plurianual (PPA) do governo. Se a informação não estiver no documento, diga que não pode ajudar com base nos seus dados.",
+        instructions=(
+            "Você é um assistente de IA amigável e acessível, especializado no Programa Plurianual (PPA) do governo do Brasil. "
+            "Sua missão é ajudar o cidadão a entender o PPA de forma simples, respondendo a perguntas **exclusivamente com base no documento PPA fornecido**. "
+            "**Sua maior prioridade é diferenciar e apresentar claramente os 'Objetivos Estratégicos' e os 'Objetivos Específicos' quando solicitado.** "
+            " - **Objetivos Estratégicos** são a visão de alto nível, os grandes propósitos ou direções. "
+            " - **Objetivos Específicos** são os passos mais detalhados, concretos e mensuráveis para alcançar os objetivos estratégicos. "
+            "Quando perguntado sobre 'objetivos estratégicos', forneça os pontos de alto nível. "
+            "Quando perguntado sobre 'objetivos específicos', detalhe os resultados mais práticos e direcionados. "
+            "Se o cidadão perguntar sobre 'objetivos' de forma geral, tente identificar se ele busca a visão ampla (estratégica) ou os detalhes (específicos) e responda de forma apropriada, talvez oferecendo ambos se a pergunta for ambígua. "
+            "**Se a informação ou a distinção exata não estiver no documento, ou se você não conseguir diferenciar com clareza com base nele, diga explicitamente que a informação não foi encontrada ou não está clara no documento fornecido, evitando criar respostas ou 'alucinar'.** "
+            "Seja sempre didático, claro e evite jargões técnicos. Mantenha as respostas concisas, mas completas para a pergunta."
+        ),
         model="gpt-4-1106-preview",
         tools=[{"type": "file_search"}],
         tool_resources={
@@ -126,11 +137,11 @@ def get_or_create_thread():
         try:
             with open(thread_path, "r") as f:
                 thread_id = json.load(f)["thread_id"]
-                client.beta.threads.retrieve(thread_id) # Validate if thread still exists
+                client.beta.threads.retrieve(thread_id) # Valida se a thread ainda existe na OpenAI
                 return thread_id
         except (json.JSONDecodeError, openai.NotFoundError):
             st.warning("Thread de conversa corrompida ou não encontrada. Criando nova thread...")
-            os.remove(thread_path) # Force new thread creation
+            os.remove(thread_path) # Força a criação de uma nova thread
     
     thread = client.beta.threads.create() # Cria uma nova thread
     with open(thread_path, "w") as f:
@@ -150,6 +161,13 @@ def show_history(thread_id):
 # 🚀 Início do aplicativo Streamlit
 st.set_page_config(page_title="Assistente do PPA", page_icon="📄", layout="wide")
 st.title("📄 Pergunte sobre o Programa Plurianual (PPA) do Governo")
+
+# Dicas para o usuário final sobre como perguntar
+st.markdown("### Dicas para fazer sua pergunta:")
+st.markdown("- Tente perguntar sobre um tema específico, como 'Me fale sobre a saúde no PPA'.")
+st.markdown("- Se quiser saber sobre os planos maiores, pergunte 'Quais são os **objetivos gerais** do PPA?'")
+st.markdown("- Se quiser detalhes, pergunte 'Quais são os **objetivos específicos** para educação?'")
+st.markdown("---") # Linha divisória para separar as dicas do chat
 
 # Obtém ou cria o assistente e a thread de conversação
 assistant_id, file_id, vector_store_id = get_or_create_assistant()
@@ -182,11 +200,13 @@ if user_input := st.chat_input("Digite sua pergunta sobre o PPA..."):
             if run_status.status == "completed":
                 break
             elif run_status.status == "failed":
-                st.error(f"Erro ao gerar a resposta: {run_status.last_error.message if run_status.last_error else 'Desconhecido'}")
+                # Mensagem de erro mais amigável para o cidadão
+                st.error("Desculpe, não consegui encontrar uma resposta no documento do PPA para sua pergunta neste momento. Por favor, tente reformular sua pergunta ou perguntar sobre outro tópico.")
+                if run_status.last_error: # Opcional: Para depuração, você pode querer ver o erro real no console/logs
+                    print(f"Erro detalhado da OpenAI: {run_status.last_error.message}")
                 st.stop()
             elif run_status.status == "requires_action":
-                st.warning("O assistente requer uma ação. Funções de ferramenta podem ser necessárias.")
-                # Implement tool calling handling here if you expand the assistant's capabilities
+                st.warning("O assistente requer uma ação. Funções de ferramenta podem ser necessárias (funcionalidade avançada não implementada nesta versão).")
                 break
             time.sleep(1) # Espera um pouco antes de verificar novamente
 
